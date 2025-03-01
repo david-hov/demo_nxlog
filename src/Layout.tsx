@@ -1,10 +1,11 @@
 import { Box, Button, Container } from '@mui/material';
 import type { ReactNode } from 'react';
 import { Layout as RALayout } from 'react-admin';
-import { useWebSocket } from './providers/socketProvider';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CancelIcon from '@mui/icons-material/Cancel';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
+
+import { useWebSocket } from './providers/socketProvider';
 
 export const Layout = ({ children }: { children: ReactNode }) => {
     const { startConnection, stopConnection, isConnected } = useWebSocket();

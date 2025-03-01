@@ -1,18 +1,9 @@
-import React, { createContext, useContext, useEffect, useReducer, useState } from 'react';
-import { toast } from 'react-toastify';
-import { Alert, Order, ordersReducer } from '../reducers/orderReducer';
+import React, { createContext, useContext, useReducer, useRef, useState } from 'react';
+
+import { ordersReducer } from '../reducers/orderReducer';
+import { Order, WebSocketContextType } from '../types';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL + '?api_key=' + import.meta.env.VITE_SOCKET_KEY;
-
-interface WebSocketContextType {
-    socket: WebSocket | null;
-    isConnected: boolean;
-    startConnection: () => void;
-    stopConnection: () => void;
-    orders: Order[],
-    alerts: Alert[],
-    addOrder: (order: any) => void,
-}
 
 const WebSocketContext = createContext<WebSocketContextType>({
     socket: null,
@@ -21,16 +12,29 @@ const WebSocketContext = createContext<WebSocketContextType>({
     stopConnection: () => { },
     orders: [],
     alerts: [],
-    addOrder: (_: Order) => { }
 });
 
 export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [socket, setSocket] = useState<WebSocket | null>(null);
+    const socketRef = useRef<WebSocket | null>(null);
     const [isConnected, setIsConnected] = useState(false);
-    const [state, dispatch] = useReducer(ordersReducer, {orders: [], alerts: []});
+    const [state, dispatch] = useReducer(ordersReducer, { orders: [], alerts: [] });
+    const orderQueueRef = useRef<Order[]>([]);
+    const delayRef = useRef<NodeJS.Timeout | null>(null);
+
+    const startDelayedDispatch = () => {
+        delayRef.current = setInterval(() => {
+            if (orderQueueRef.current.length > 0) {
+                const itemsToDispatch = orderQueueRef.current.splice(0, orderQueueRef.current.length);
+                for (const item of itemsToDispatch) {
+                    dispatch({ type: 'ADD_ORDER', order: item });
+                }
+            }
+        }, 2000);
+    };
+
 
     const startConnection = () => {
-        if (!socket) {
+        if (!socketRef.current) {
             const newSocket = new WebSocket(SOCKET_URL);
 
             newSocket.onopen = () => {
@@ -47,7 +51,10 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             newSocket.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 if (data.P && data.Q) {
-                    dispatch({ type: 'ADD_ORDER', order: data });
+                    orderQueueRef.current.push(data);
+                    if (!delayRef.current) {
+                        startDelayedDispatch();
+                    }
                 }
             };
 
@@ -60,31 +67,24 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 setIsConnected(false);
             };
 
-            setSocket(newSocket);
+            socketRef.current = newSocket;
         }
     };
 
     const stopConnection = () => {
-        if (socket) {
-            socket.close();
+        if (socketRef.current) {
+            socketRef.current.close();
             setIsConnected(false);
-            setSocket(null);
+            socketRef.current = null;
         }
-    };
-
-    useEffect(() => {
-        if (isConnected && state.orders.length === 500) {
-            toast.success('500 rows data fetched, Socket Connection Closed');
-            stopConnection();
+        if (delayRef.current) {
+            clearInterval(delayRef.current);
+            delayRef.current = null;
         }
-    }, [isConnected, state.orders])
-
-    const addOrder = (order: any) => {
-        dispatch({ type: 'ADD_ORDER', order });
     };
 
     return (
-        <WebSocketContext.Provider value={{ socket, addOrder, stopConnection, alerts: state.alerts, orders: state.orders, isConnected, startConnection }}>
+        <WebSocketContext.Provider value={{ socket: socketRef.current, stopConnection, alerts: state.alerts, orders: state.orders, isConnected, startConnection }}>
             {children}
         </WebSocketContext.Provider>
     );

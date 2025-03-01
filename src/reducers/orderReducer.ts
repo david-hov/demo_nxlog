@@ -1,9 +1,13 @@
+import { v4 as uuidv4 } from 'uuid';
+
 export type Order = {
-    id: number;
+    id: string;
+    rule?: AlertRule;
     symbol: string;
     side: string;
     price: number;
     quantity: number;
+    total: string;
     time: string;
 };
 
@@ -15,11 +19,13 @@ export enum AlertRule {
 }
 
 export type Alert = {
-    id: number;
-    rule: AlertRule;
+    id: string;
+    rule?: AlertRule;
     symbol: string;
+    side: string;
     price: number;
     quantity: number;
+    total: string;
     time: string;
 };
 
@@ -33,32 +39,40 @@ type OrdersAction =
     | { type: 'RESET_ORDER' }
     | { type: 'FINISHED' }
 
-const getTriggeredAlerts = (order: Order, alerts: Alert[]): Alert[] => {
-    const currentState = [...alerts];
-    if (order.price < 50000) currentState.push({...order, rule: AlertRule.CHEAP});
-    if (order.quantity > 10) currentState.push({...order, rule: AlertRule.SOLID});
-    if (order.price > 1000000) currentState.push({...order, rule: AlertRule.BIG});
-    return currentState
+const getTriggeredAlerts = (order: Order) => {
+    if (order.price < 50000) order.rule = AlertRule.CHEAP;
+    if (order.quantity > 10) order.rule = AlertRule.SOLID;
+    if (parseInt(order.total) > 1000000) order.rule = AlertRule.BIG;
+    return order
 };
 
 export const ordersReducer = (state: OrdersState, action: OrdersAction): OrdersState => {
     switch (action.type) {
         case 'ADD_ORDER':
             const formattedOrder = {
-                id: state.orders.length,
+                id: uuidv4(),
                 symbol: `${action.order.FSYM}/${action.order.TSYM}`,
                 side: action.order.SIDE === 0 ? 'Buy' : 'Sell',
-                price: action.order.P,
-                quantity: action.order.Q,
+                price: action.order.P.toFixed(2),
+                quantity: action.order.Q.toFixed(2),
+                total: (action.order.Q * action.order.P).toFixed(2),
                 time: new Date(action.order.REPORTEDNS / 1000000).toLocaleTimeString(),
             };
-            const updatedOrders = [formattedOrder, ...state.orders];
-            const newAlerts = getTriggeredAlerts(formattedOrder, state.alerts);
-            const result = updatedOrders.length > 500 ? state.orders : updatedOrders;
-            return { ...state, alerts: newAlerts, orders: result }
+            const alertedOrder = getTriggeredAlerts(formattedOrder);
+            const updatedOrders = [alertedOrder, ...state.orders];
+            const limitedOrders = updatedOrders.length > 500 ? updatedOrders.slice(0, 500) : updatedOrders;
+            let newAlerts = [...state.alerts];
+            if (alertedOrder.rule) {
+                const alertTime = action.order.REPORTEDNS / 1000000;
+                if (Date.now() - alertTime <= 60000) {
+                    newAlerts = [alertedOrder, ...state.alerts];
+                }
+            }
+            return { ...state, alerts: newAlerts, orders: limitedOrders }
         case 'RESET_ORDER':
             return { ...state, orders: [] }
         default:
             return state;
     }
 };
+
